@@ -1,4 +1,4 @@
-const { create } = require("zustand");
+import { create } from "zustand";
 
 export const teachers = ["Nanami", "Naoki"];
 
@@ -41,34 +41,118 @@ export const useAITeacher = create((set, get) => ({
     }));
   },
   askAI: async (question) => {
-    if (!question) {
-      return;
-    }
+    if (!question) return;
+    
     const message = {
       question,
       id: get().messages.length,
     };
-    set(() => ({
-      loading: true,
-    }));
+    
+    set(() => ({ loading: true }));
 
-    const speech = get().speech;
+    try {
+      const params = new URLSearchParams({
+        question: question,
+        speech: get().speech,
+        provider: process.env.NEXT_PUBLIC_AI_PROVIDER || 'openrouter'
+      });
 
-    // Ask AI
-    const res = await fetch(`/api/ai?question=${question}&speech=${speech}`);
-    const data = await res.json();
-    message.answer = data;
-    message.speech = speech;
+      const response = await fetch(`/api/ai?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`AI request failed: ${response.statusText}`);
+      }
 
-    set(() => ({
-      currentMessage: message,
-    }));
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
-    set((state) => ({
-      messages: [...state.messages, message],
-      loading: false,
-    }));
-    get().playMessage(message);
+      message.answer = data;
+      
+      set((state) => ({
+        messages: [...state.messages, message],
+        loading: false,
+      }));
+
+      // TTS handling
+      if (!message.audioPlayer) {
+        set(() => ({ loading: true }));
+
+        try {
+          const text = message.answer.japanese
+            .map((word) => word.word)
+            .join(" ");
+
+          const provider = process.env.NEXT_PUBLIC_SPEECH_PROVIDER || 'browser';
+          
+          if (provider !== 'browser') {
+            const response = await fetch(
+              `/api/tts?text=${encodeURIComponent(text)}&teacher=${get().teacher}&provider=${provider}`
+            );
+            
+            if (!response.ok) {
+              throw new Error('TTS API request failed');
+            }
+
+            const contentType = response.headers.get('Content-Type');
+            if (contentType === 'audio/wav') {
+              const audioBlob = await response.blob();
+              const audioUrl = URL.createObjectURL(audioBlob);
+              const audio = new Audio(audioUrl);
+              
+              message.audioPlayer = audio;
+              message.visemes = JSON.parse(response.headers.get('visemes') || '[]');
+              
+              audio.onended = () => {
+                set(() => ({ currentMessage: null }));
+              };
+            } else {
+              // Fallback to browser TTS
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.lang = 'ja-JP';
+              utterance.rate = 1.0;
+              utterance.pitch = 1.0;
+              utterance.onend = () => {
+                set(() => ({ currentMessage: null }));
+              };
+              message.audioPlayer = utterance;
+            }
+          } else {
+            // Direct browser TTS
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.onend = () => {
+              set(() => ({ currentMessage: null }));
+            };
+            message.audioPlayer = utterance;
+          }
+
+          set(() => ({
+            loading: false,
+            messages: get().messages.map((m) => {
+              if (m.id === message.id) return message;
+              return m;
+            }),
+          }));
+        } catch (error) {
+          console.error('TTS Error:', error);
+          set(() => ({ loading: false }));
+        }
+      }
+
+      if (message.audioPlayer) {
+        if (message.audioPlayer instanceof Audio) {
+          message.audioPlayer.play();
+        } else {
+          window.speechSynthesis.speak(message.audioPlayer);
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      set(() => ({ loading: false }));
+    }
   },
   playMessage: async (message) => {
     set(() => ({
@@ -79,40 +163,96 @@ export const useAITeacher = create((set, get) => ({
       set(() => ({
         loading: true,
       }));
-      // Get TTS
-      const audioRes = await fetch(
-        `/api/tts?teacher=${get().teacher}&text=${message.answer.japanese
-          .map((word) => word.word)
-          .join(" ")}`
-      );
-      const audio = await audioRes.blob();
-      const visemes = JSON.parse(await audioRes.headers.get("visemes"));
-      const audioUrl = URL.createObjectURL(audio);
-      const audioPlayer = new Audio(audioUrl);
 
-      message.visemes = visemes;
-      message.audioPlayer = audioPlayer;
-      message.audioPlayer.onended = () => {
-        set(() => ({
-          currentMessage: null,
-        }));
-      };
-      set(() => ({
-        loading: false,
-        messages: get().messages.map((m) => {
-          if (m.id === message.id) {
-            return message;
+      try {
+        const text = message.answer.japanese
+          .map((word) => word.word)
+          .join(" ");
+
+        // Get the selected provider from URL params or use browser as default
+        const params = new URLSearchParams(window.location.search);
+        const provider = params.get('provider') || 'browser';
+        
+        if (provider !== 'browser') {
+          const response = await fetch(
+            `/api/tts?text=${encodeURIComponent(text)}&teacher=${get().teacher}&provider=${provider}`
+          );
+          
+          if (!response.ok) {
+            throw new Error('TTS API request failed');
           }
-          return m;
-        }),
-      }));
+
+          const contentType = response.headers.get('Content-Type');
+          if (contentType === 'audio/wav') {
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            
+            message.audioPlayer = audio;
+            message.visemes = JSON.parse(response.headers.get('visemes') || '[]');
+            
+            audio.onended = () => {
+              set(() => ({
+                currentMessage: null,
+              }));
+            };
+          } else {
+            // Handle browser TTS script response
+            const script = await response.text();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ja-JP';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+
+            utterance.onend = () => {
+              set(() => ({
+                currentMessage: null,
+              }));
+            };
+
+            message.audioPlayer = utterance;
+          }
+        } else {
+          // Direct browser TTS
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'ja-JP';
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+
+          utterance.onend = () => {
+            set(() => ({
+              currentMessage: null,
+            }));
+          };
+
+          message.audioPlayer = utterance;
+        }
+
+        set(() => ({
+          loading: false,
+          messages: get().messages.map((m) => {
+            if (m.id === message.id) {
+              return message;
+            }
+            return m;
+          }),
+        }));
+      } catch (error) {
+        console.error('TTS Error:', error);
+        set(() => ({
+          loading: false,
+        }));
+      }
     }
 
-    message.audioPlayer.currentTime = 0;
-    message.audioPlayer.play();
+    if (message.audioPlayer) {
+      window.speechSynthesis.speak(message.audioPlayer);
+    }
   },
   stopMessage: (message) => {
-    message.audioPlayer.pause();
+    if (message.audioPlayer) {
+      window.speechSynthesis.cancel();
+    }
     set(() => ({
       currentMessage: null,
     }));

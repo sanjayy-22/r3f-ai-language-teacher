@@ -1,9 +1,5 @@
+import { OpenRouter } from "@adaline/open-router";
 import OpenAI from "openai";
-
-// Initialize OpenAI only if we have the key
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-}) : null;
 
 // Direct API call to OpenRouter
 async function callOpenRouter(messages) {
@@ -28,6 +24,11 @@ async function callOpenRouter(messages) {
 
   return await response.json();
 }
+
+// Initialize OpenAI only if we have the key
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+}) : null;
 
 const formalExample = {
   japanese: [
@@ -132,51 +133,98 @@ const casualExample = {
 };
 
 export async function GET(req) {
-  // WARNING: Do not expose your keys
-  // WARNING: If you host publicly your project, add an authentication layer to limit the consumption of ChatGPT resources
-
   const speech = req.nextUrl.searchParams.get("speech") || "formal";
-  const provider = req.nextUrl.searchParams.get("provider") || process.env.NEXT_PUBLIC_AI_PROVIDER || 'openrouter';
+  const speechExample = {
+    english: "Do you live in Japan?",
+    japanese: [
+      { word: "日本", reading: "にほん", romaji: "nihon" },
+      { word: "に", romaji: "ni" },
+      { word: "住んで", reading: "すんで", romaji: "sunde" },
+      { word: "います", romaji: "imasu" },
+      { word: "か", romaji: "ka" },
+      { word: "?", romaji: "?" },
+    ],
+    grammarBreakdown: [
+      {
+        english: "Do you live in Japan?",
+        japanese: [
+          { word: "日本", reading: "にほん", romaji: "nihon" },
+          { word: "に", romaji: "ni" },
+          { word: "住んで", reading: "すんで", romaji: "sunde" },
+          { word: "います", romaji: "imasu" },
+          { word: "か", romaji: "ka" },
+          { word: "?", romaji: "?" },
+        ],
+        chunks: [
+          {
+            japanese: [{ word: "日本", reading: "にほん", romaji: "nihon" }],
+            meaning: "Japan",
+            grammar: "Noun"
+          },
+          {
+            japanese: [{ word: "に", romaji: "ni" }],
+            meaning: "in",
+            grammar: "Particle"
+          },
+          {
+            japanese: [
+              { word: "住んで", reading: "すんで", romaji: "sunde" },
+              { word: "います", romaji: "imasu" }
+            ],
+            meaning: "live",
+            grammar: "Verb + て form + います"
+          },
+          {
+            japanese: [{ word: "か", romaji: "ka" }],
+            meaning: "question",
+            grammar: "Particle"
+          }
+        ]
+      }
+    ]
+  };
 
   const systemMessages = [
     {
       role: "system",
       content: `You are a Japanese language teacher. 
-Your student asks you how to say something from english to japanese.
+Your student asks you how to say something from English to Japanese.
 You should respond with: 
-- english: the english version ex: "Do you live in Japan?"
-- japanese: the japanese translation in split into words ex: ${JSON.stringify(
-          speech === "formal" ? formalExample.japanese : casualExample.japanese
-        )}
-- grammarBreakdown: an explanation of the grammar structure per sentence ex: ${JSON.stringify(
-          speech === "formal" ? formalExample.grammarBreakdown : casualExample.grammarBreakdown
-        )}
-`,
+- english: the English version, e.g., "Do you live in Japan?"
+- japanese: the Japanese translation split into words with readings and romaji, e.g., ${JSON.stringify(
+        speechExample.japanese
+      )}
+- grammarBreakdown: an explanation of the grammar structure per sentence with readings and romaji, e.g., ${JSON.stringify(
+        speechExample.grammarBreakdown
+      )}`,
     },
     {
       role: "system",
-      content: `You always respond with a JSON object with the following format: 
+      content: `You always respond with a JSON object in the following format: 
       {
         "english": "",
-        "japanese": [{
-          "word": "",
-          "reading": ""
-        }],
-        "grammarBreakdown": [{
+        "japanese": [ { 
+          "word": "Japanese word", 
+          "reading": "reading in hiragana if needed",
+          "romaji": "reading in English letters" 
+        } ],
+        "grammarBreakdown": [ {
           "english": "",
-          "japanese": [{
-            "word": "",
-            "reading": ""
-          }],
-          "chunks": [{
-            "japanese": [{
-              "word": "",
-              "reading": ""
-            }],
+          "japanese": [ { 
+            "word": "Japanese word", 
+            "reading": "reading in hiragana if needed",
+            "romaji": "reading in English letters" 
+          } ],
+          "chunks": [ {
+            "japanese": [ { 
+              "word": "Japanese word", 
+              "reading": "reading in hiragana if needed",
+              "romaji": "reading in English letters" 
+            } ],
             "meaning": "",
             "grammar": ""
-          }]
-        }]
+          } ]
+        } ]
       }`,
     },
     {
@@ -187,6 +235,8 @@ You should respond with:
       } in Japanese in ${speech} speech?`,
     },
   ];
+
+  const provider = req.nextUrl.searchParams.get("provider") || process.env.NEXT_PUBLIC_AI_PROVIDER || 'openrouter';
 
   try {
     let response;
