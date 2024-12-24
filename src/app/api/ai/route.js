@@ -1,8 +1,33 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env["OPENAI_API_KEY"], // This is the default and can be omitted
-});
+// Initialize OpenAI only if we have the key
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+}) : null;
+
+// Direct API call to OpenRouter
+async function callOpenRouter(messages) {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.VERCEL_URL || 'http://localhost:3000',
+    },
+    body: JSON.stringify({
+      model: "mistralai/mistral-7b-instruct:free",
+      messages: messages,
+      temperature: 0.4,
+      max_tokens: 1000,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenRouter API error: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
 
 const formalExample = {
   japanese: [
@@ -111,64 +136,79 @@ export async function GET(req) {
   // WARNING: If you host publicly your project, add an authentication layer to limit the consumption of ChatGPT resources
 
   const speech = req.nextUrl.searchParams.get("speech") || "formal";
-  const speechExample = speech === "formal" ? formalExample : casualExample;
+  const provider = req.nextUrl.searchParams.get("provider") || process.env.NEXT_PUBLIC_AI_PROVIDER || 'openrouter';
 
-  const chatCompletion = await openai.chat.completions.create({
-    messages: [
-      {
-        role: "system",
-        content: `You are a Japanese language teacher. 
+  const systemMessages = [
+    {
+      role: "system",
+      content: `You are a Japanese language teacher. 
 Your student asks you how to say something from english to japanese.
 You should respond with: 
 - english: the english version ex: "Do you live in Japan?"
 - japanese: the japanese translation in split into words ex: ${JSON.stringify(
-          speechExample.japanese
+          speech === "formal" ? formalExample.japanese : casualExample.japanese
         )}
 - grammarBreakdown: an explanation of the grammar structure per sentence ex: ${JSON.stringify(
-          speechExample.grammarBreakdown
+          speech === "formal" ? formalExample.grammarBreakdown : casualExample.grammarBreakdown
         )}
 `,
-      },
+    },
+    {
+      role: "system",
+      content: `You always respond with a JSON object with the following format: 
       {
-        role: "system",
-        content: `You always respond with a JSON object with the following format: 
-        {
+        "english": "",
+        "japanese": [{
+          "word": "",
+          "reading": ""
+        }],
+        "grammarBreakdown": [{
           "english": "",
           "japanese": [{
             "word": "",
             "reading": ""
           }],
-          "grammarBreakdown": [{
-            "english": "",
+          "chunks": [{
             "japanese": [{
               "word": "",
               "reading": ""
             }],
-            "chunks": [{
-              "japanese": [{
-                "word": "",
-                "reading": ""
-              }],
-              "meaning": "",
-              "grammar": ""
-            }]
+            "meaning": "",
+            "grammar": ""
           }]
-        }`,
-      },
-      {
-        role: "user",
-        content: `How to say ${
-          req.nextUrl.searchParams.get("question") ||
-          "Have you ever been to Japan?"
-        } in Japanese in ${speech} speech?`,
-      },
-    ],
-    // model: "gpt-4-turbo-preview", // https://platform.openai.com/docs/models/gpt-4-and-gpt-4-turbo
-    model: "gpt-3.5-turbo", // https://help.openai.com/en/articles/7102672-how-can-i-access-gpt-4
-    response_format: {
-      type: "json_object",
+        }]
+      }`,
     },
-  });
-  console.log(chatCompletion.choices[0].message.content);
-  return Response.json(JSON.parse(chatCompletion.choices[0].message.content));
+    {
+      role: "user",
+      content: `How to say ${
+        req.nextUrl.searchParams.get("question") ||
+        "Have you ever been to Japan?"
+      } in Japanese in ${speech} speech?`,
+    },
+  ];
+
+  try {
+    let response;
+    
+    if (provider === 'openai' && openai) {
+      response = await openai.chat.completions.create({
+        messages: systemMessages,
+        model: "gpt-3.5-turbo",
+        temperature: 0.4,
+        max_tokens: 1000,
+      });
+      return Response.json(JSON.parse(response.choices[0].message.content));
+    } else {
+      // Default to OpenRouter
+      const openRouterResponse = await callOpenRouter(systemMessages);
+      return Response.json(JSON.parse(openRouterResponse.choices[0].message.content));
+    }
+  } catch (error) {
+    console.error('AI Provider Error:', error);
+    return Response.json({ 
+      error: `Failed to get AI response: ${error.message}`,
+      provider: provider
+    }, { status: 500 });
+  }
 }
