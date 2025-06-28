@@ -1,4 +1,5 @@
 import { teachers, useAITeacher } from "@/hooks/useAITeacher";
+import { modelConfig } from "@/config/models";
 
 export const BoardSettings = () => {
   const furigana = useAITeacher((state) => state.furigana);
@@ -18,25 +19,31 @@ export const BoardSettings = () => {
 
   return (
     <>
+      {/* Teacher selection */}
       <div className="absolute right-0 bottom-full flex flex-row gap-10 mb-20">
-        {teachers.map((sensei, idx) => (
-          <div
-            key={idx}
-            className={`p-3 transition-colors duration-500 ${
-              teacher === sensei ? "bg-white/80" : "bg-white/40"
-            }`}
-          >
-            <div onClick={() => setTeacher(sensei)}>
-              <img
-                src={`/images/${sensei}.jpg`}
-                alt={sensei}
-                className="object-cover w-40 h-40"
-              />
+        {teachers.map((sensei, idx) => {
+          const teacherConfig = modelConfig.teachers[sensei];
+          return (
+            <div
+              key={idx}
+              className={`p-3 transition-colors duration-500 ${
+                teacher === sensei ? "bg-white/80" : "bg-white/40"
+              }`}
+            >
+              <div onClick={() => setTeacher(sensei)}>
+                <img
+                  src={teacherConfig?.imagePath || `/images/${sensei}.jpg`}
+                  alt={sensei}
+                  className="object-cover w-40 h-40"
+                />
+              </div>
+              <h2 className="text-3xl font-bold mt-3 text-center">{sensei}</h2>
             </div>
-            <h2 className="text-3xl font-bold mt-3 text-center">{sensei}</h2>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Classroom selection */}
       <div className="absolute left-0 bottom-full flex flex-row gap-2 mb-20">
         <button
           className={` ${
@@ -59,6 +66,8 @@ export const BoardSettings = () => {
           Alternative classroom
         </button>
       </div>
+
+      {/* Speech formality */}
       <div className="absolute left-0 top-full flex flex-row gap-2 mt-20">
         <button
           className={` ${
@@ -81,6 +90,8 @@ export const BoardSettings = () => {
           Casual
         </button>
       </div>
+
+      {/* Display options */}
       <div className="absolute right-0 top-full flex flex-row gap-2 mt-20">
         <button
           className={` ${

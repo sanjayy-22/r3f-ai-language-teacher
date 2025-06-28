@@ -17,33 +17,15 @@ import { BoardSettings } from "./BoardSettings";
 import { MessagesList } from "./MessagesList";
 import { Teacher } from "./Teacher";
 import { TypingBox } from "./TypingBox";
-
-const itemPlacement = {
-  default: {
-    classroom: {
-      position: [0.2, -1.7, -2],
-    },
-    teacher: {
-      position: [-1, -1.7, -3],
-    },
-    board: {
-      position: [0.45, 0.382, -6],
-    },
-  },
-  alternative: {
-    classroom: {
-      position: [0.3, -1.7, -1.5],
-      rotation: [0, degToRad(-90), 0],
-      scale: 0.4,
-    },
-    teacher: { position: [-1, -1.7, -3] },
-    board: { position: [1.4, 0.84, -8] },
-  },
-};
+import { modelConfig } from "@/config/models";
 
 export const Experience = () => {
   const teacher = useAITeacher((state) => state.teacher);
   const classroom = useAITeacher((state) => state.classroom);
+
+  // Get configurations from model config
+  const teacherConfig = modelConfig.teachers[teacher];
+  const classroomConfig = modelConfig.classrooms[classroom];
 
   return (
     <>
@@ -61,27 +43,37 @@ export const Experience = () => {
 
         <Suspense>
           <Float speed={0.5} floatIntensity={0.2} rotationIntensity={0.1}>
+            {/* Board with messages and settings */}
             <Html
               transform
-              {...itemPlacement[classroom].board}
+              position={classroomConfig.board.position}
+              rotation={classroomConfig.board.rotation}
+              scale={classroomConfig.board.scale}
               distanceFactor={1}
             >
               <MessagesList />
               <BoardSettings />
             </Html>
+
+            {/* Environment and lighting */}
             <Environment preset="sunset" />
             <ambientLight intensity={0.8} color="pink" />
 
+            {/* Classroom model */}
             <Gltf
-              src={`/models/classroom_${classroom}.glb`}
-              {...itemPlacement[classroom].classroom}
+              src={classroomConfig.modelPath}
+              position={classroomConfig.position}
+              rotation={classroomConfig.rotation}
+              scale={classroomConfig.scale}
             />
+
+            {/* Teacher positioned near the board */}
             <Teacher
               teacher={teacher}
               key={teacher}
-              {...itemPlacement[classroom].teacher}
-              scale={1.5}
-              rotation-y={degToRad(20)}
+              position={teacherConfig.positions[classroom]}
+              rotation={teacherConfig.rotation}
+              scale={teacherConfig.scale}
             />
           </Float>
         </Suspense>
@@ -132,19 +124,26 @@ const CameraManager = () => {
       ref={controls}
       minZoom={1}
       maxZoom={3}
-      polarRotateSpeed={-0.3} // REVERSE FOR NATURAL EFFECT
-      azimuthRotateSpeed={-0.3} // REVERSE FOR NATURAL EFFECT
+      polarRotateSpeed={-0.3}
+      azimuthRotateSpeed={-0.3}
       mouseButtons={{
-        left: 1, //ACTION.ROTATE
-        wheel: 16, //ACTION.ZOOM
+        left: 1,
+        wheel: 16,
       }}
       touches={{
-        one: 32, //ACTION.TOUCH_ROTATE
-        two: 512, //ACTION.TOUCH_ZOOM
+        one: 32,
+        two: 512,
       }}
     />
   );
 };
 
-useGLTF.preload("/models/classroom_default.glb");
-useGLTF.preload("/models/classroom_alternative.glb");
+// Preload models based on configuration
+Object.values(modelConfig.teachers).forEach((teacher) => {
+  useGLTF.preload(teacher.modelPath);
+  useGLTF.preload(teacher.animationPath);
+});
+
+Object.values(modelConfig.classrooms).forEach((classroom) => {
+  useGLTF.preload(classroom.modelPath);
+});

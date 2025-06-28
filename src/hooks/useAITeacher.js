@@ -1,4 +1,5 @@
 const { create } = require("zustand");
+import { modelConfig } from "@/config/models";
 
 export const teachers = ["Nanami", "Naoki"];
 
@@ -79,9 +80,14 @@ export const useAITeacher = create((set, get) => ({
       set(() => ({
         loading: true,
       }));
+      
+      // Get teacher voice name from config
+      const teacherConfig = modelConfig.teachers[get().teacher];
+      const voiceName = teacherConfig?.voiceName || get().teacher;
+      
       // Get TTS
       const audioRes = await fetch(
-        `/api/tts?teacher=${get().teacher}&text=${message.answer.japanese
+        `/api/tts?teacher=${voiceName}&text=${message.answer.japanese
           .map((word) => word.word)
           .join(" ")}`
       );
